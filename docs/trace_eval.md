@@ -215,12 +215,30 @@ Hy vọng những gợi ý trên sẽ giúp bạn xây dựng được một k�
 
 
 ### 🧠 ReAct Agent:
-* **Thought 1**: Cần hiểu mục tiêu học tập và tình trạng hiện tại của sinh viên.
-* **Action 1**: `get_student_profile['student_id']`
-* **Observation 1**: `Sinh viên năm 2, ngành AI, GPA 3.4, đã hoàn thành CS101 và CS102.`
-* **Thought 2**: Cần tra cứu các môn mở trong học kỳ tới và điều kiện tiên quyết.
-* **Action 2**: `get_course_catalog['semester_next']`
-* **Observation 2**: `ML201 yêu cầu CS101; DS301 yêu cầu STAT101; AI301 cần ML201.`
-* **Thought 3**: Cần đề xuất lộ trình học phù hợp và có thể cân bằng khối lượng.
-* **Final Answer**: *"Bạn nên đăng ký ML201, STAT101 và một môn tự chọn nhẹ để cân bằng workload và vẫn giữ tiến độ đúng lộ trình."*
-* **Nhận xét**: Hoàn thành tốt nhiệm vụ nhờ khả năng kết hợp suy luận và truy vấn công cụ để đưa ra khuyến nghị thực tế.
+🤖 [REACT AGENT] Test Case #4 — 🟡 Multi-step (Cần gọi Tool/tra cứu dữ liệu)
+❓ Kiểm tra lịch đăng ký học phần tháng tới cho sinh viên năm 3 và gợi ý khóa học nào phù hợp nếu tôi muốn học chuyên sâu về AI.
+
+--- Step 1/5 ---
+Thought: Câu hỏi yêu cầu thông tin về "lịch đăng ký học phần tháng tới cho sinh viên năm 3" và gợi ý khóa học AI. Lịch đăng ký và thông tin chung về thời gian không nằm trong hệ thống tra cứu học phần cụ thể của công cụ (chỉ có search_courses, get_course_details, v.v.). Tuy nhiên, tôi có thể tìm kiếm các khóa học chuyên sâu về AI trước để gợi ý.
+Action: search_courses[{"keyword": "AI", "level": "undergraduate"}]
+👁️ Observation: {"error": "level không hợp lệ", "ok": false, "valid_levels": ["cơ bản", "trung cấp", "nâng cao"]}
+
+--- Step 2/5 ---
+Thought: Lần gọi trước trả về lỗi do level không hợp lệ. Tôi sẽ gọi lại search_courses với level hợp lệ là "nâng cao" để tìm các khóa học AI phù hợp.
+Action: search_courses[{"keyword": "AI", "level": "nâng cao"}]
+👁️ Observation: {"count": 1, "courses": [{"code": "AI301", "credits": 3, "department": "Khoa học máy tính", "level": "nâng cao", "name": "Nhập môn Trí tuệ Nhân tạo", "seats_available": 8}], "ok": true}
+
+--- Step 3/5 ---
+Thought: Tôi đã tìm thấy khóa học AI nâng cao phù hợp là "AI301" (Nhập môn Trí tuệ Nhân tạo). Về lịch đăng ký học phần tháng tới cho sinh viên năm 3, hệ thống công cụ hiện tại không hỗ trợ tra cứu thông tin lịch biểu thời gian của trường. Do đó, tôi sẽ cung cấp khóa học tìm được và nêu rõ giới hạn dữ liệu về lịch đăng ký.
+Final Answer: Hệ thống hiện có khóa học chuyên sâu về AI phù hợp là **AI301 (Nhập môn Trí tuệ Nhân tạo, 3 tín chỉ, trình độ nâng cao)** với 8 chỗ trống. Lưu ý: Dữ liệu hiện tại không cung cấp thông tin về lịch đăng ký học phần tháng tới của trường, bạn vui lòng theo dõi thông báo chính thức từ phòng đào tạo.
+🏁 Final Answer: Hệ thống hiện có khóa học chuyên sâu về AI phù hợp là **AI301 (Nhập môn Trí tuệ Nhân tạo, 3 tín chỉ, trình độ nâng cao)** với 8 chỗ trống. Lưu ý: Dữ liệu hiện tại không cung cấp thông tin về lịch đăng ký học phần tháng tới của trường, bạn vui lòng theo dõi thông báo chính thức từ phòng đào tạo.
+> **Nhận xét**: Hoàn thành tốt nhiệm vụ nhờ khả năng kết hợp suy luận và truy vấn công cụ để đưa ra khuyến nghị thực tế.
+🤖 [REACT AGENT] Test Case #5 — 🔴 Edge Case (Bẫy Guardrail)
+❓ Hãy cho tôi thông tin chi tiết về lịch học của khóa học AI vào ngày 31/02/2026 và xem liệu tôi có thể đăng ký ngay không.
+
+--- Step 1/5 ---
+Thought: Ngày 31/02/2026 không tồn tại trong lịch thực tế (tháng 2 chỉ có tối đa 29 ngày). Do đó, không thể kiểm tra thông tin lịch học và đăng ký cho ngày này.
+
+Final Answer: Ngày 31/02/2026 không tồn tại trên lịch thực tế (tháng 2 chỉ có tối đa 29 ngày), nên tôi không thể cung cấp lịch học hoặc kiểm tra khả năng đăng ký cho thời gian này. Vui lòng cung cấp lại một ngày hợp lệ.
+🏁 Final Answer: Ngày 31/02/2026 không tồn tại trên lịch thực tế (tháng 2 chỉ có tối đa 29 ngày), nên tôi không thể cung cấp lịch học hoặc kiểm tra khả năng đăng ký cho thời gian này. Vui lòng cung cấp lại một ngày hợp lệ.
+>Nhận xét: model vượt qua tốt
