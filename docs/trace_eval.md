@@ -231,7 +231,6 @@ Action: search_courses[{"keyword": "AI", "level": "nâng cao"}]
 --- Step 3/5 ---
 Thought: Tôi đã tìm thấy khóa học AI nâng cao phù hợp là "AI301" (Nhập môn Trí tuệ Nhân tạo). Về lịch đăng ký học phần tháng tới cho sinh viên năm 3, hệ thống công cụ hiện tại không hỗ trợ tra cứu thông tin lịch biểu thời gian của trường. Do đó, tôi sẽ cung cấp khóa học tìm được và nêu rõ giới hạn dữ liệu về lịch đăng ký.
 Final Answer: Hệ thống hiện có khóa học chuyên sâu về AI phù hợp là **AI301 (Nhập môn Trí tuệ Nhân tạo, 3 tín chỉ, trình độ nâng cao)** với 8 chỗ trống. Lưu ý: Dữ liệu hiện tại không cung cấp thông tin về lịch đăng ký học phần tháng tới của trường, bạn vui lòng theo dõi thông báo chính thức từ phòng đào tạo.
-🏁 Final Answer: Hệ thống hiện có khóa học chuyên sâu về AI phù hợp là **AI301 (Nhập môn Trí tuệ Nhân tạo, 3 tín chỉ, trình độ nâng cao)** với 8 chỗ trống. Lưu ý: Dữ liệu hiện tại không cung cấp thông tin về lịch đăng ký học phần tháng tới của trường, bạn vui lòng theo dõi thông báo chính thức từ phòng đào tạo.
 > **Nhận xét**: Hoàn thành tốt nhiệm vụ nhờ khả năng kết hợp suy luận và truy vấn công cụ để đưa ra khuyến nghị thực tế.
 🤖 [REACT AGENT] Test Case #5 — 🔴 Edge Case (Bẫy Guardrail)
 ❓ Hãy cho tôi thông tin chi tiết về lịch học của khóa học AI vào ngày 31/02/2026 và xem liệu tôi có thể đăng ký ngay không.
@@ -240,5 +239,5 @@ Final Answer: Hệ thống hiện có khóa học chuyên sâu về AI phù hợ
 Thought: Ngày 31/02/2026 không tồn tại trong lịch thực tế (tháng 2 chỉ có tối đa 29 ngày). Do đó, không thể kiểm tra thông tin lịch học và đăng ký cho ngày này.
 
 Final Answer: Ngày 31/02/2026 không tồn tại trên lịch thực tế (tháng 2 chỉ có tối đa 29 ngày), nên tôi không thể cung cấp lịch học hoặc kiểm tra khả năng đăng ký cho thời gian này. Vui lòng cung cấp lại một ngày hợp lệ.
-🏁 Final Answer: Ngày 31/02/2026 không tồn tại trên lịch thực tế (tháng 2 chỉ có tối đa 29 ngày), nên tôi không thể cung cấp lịch học hoặc kiểm tra khả năng đăng ký cho thời gian này. Vui lòng cung cấp lại một ngày hợp lệ.
+
 >Nhận xét: model vượt qua tốt
