@@ -163,21 +163,27 @@ def run_baseline_chatbot(target: Any, provider: Any) -> list[dict[str, Any]]:
     return results
 
 
-def _run_react_case(case: dict[str, Any], provider: Any) -> dict[str, Any]:
+def _run_react_case(
+    case: dict[str, Any], provider: Any, *, verbose: bool = True
+) -> dict[str, Any]:
     """Chạy state machine ReAct V2 cho một câu hỏi."""
-    print(f"\n🤖 [REACT AGENT] Test Case #{case['id']} — {case['category']}")
-    print(f"❓ {case['question']}")
+    def log(message: str) -> None:
+        if verbose:
+            print(message)
+
+    log(f"\n🤖 [REACT AGENT] Test Case #{case['id']} — {case['category']}")
+    log(f"❓ {case['question']}")
     history = f"Question: {case['question']}"
     trace: list[dict[str, Any]] = []
     seen_actions: set[str] = set()
 
     for step in range(1, MAX_ITERATIONS + 1):
-        print(f"\n--- Step {step}/{MAX_ITERATIONS} ---")
+        log(f"\n--- Step {step}/{MAX_ITERATIONS} ---")
         response = provider.generate(history, system_prompt=REACT_SYSTEM_PROMPT)
         error = _provider_error(response)
         if error:
             answer = f"Không thể kết nối dịch vụ AI. Chi tiết: {error}"
-            print(f"⚠️ {answer}")
+            log(f"⚠️ {answer}")
             return {**case, "status": "provider_error", "answer": answer, "trace": trace}
 
         response = response.strip()
@@ -189,12 +195,12 @@ def _run_react_case(case: dict[str, Any], provider: Any) -> dict[str, Any]:
             ).strip()
             thought_part = response[:final_match.start()].strip()
             if thought_part:
-                print(thought_part)
+                log(thought_part)
             trace.append({"step": step, "response": response, "type": "final"})
-            print(f"🏁 Final Answer: {answer}")
+            log(f"🏁 Final Answer: {answer}")
             return {**case, "status": "completed", "answer": answer, "trace": trace}
 
-        print(response)
+        log(response)
 
         tool_name, arguments, parse_error = _parse_action(response)
         if parse_error:
@@ -220,7 +226,7 @@ def _run_react_case(case: dict[str, Any], provider: Any) -> dict[str, Any]:
                 observation = _execute_tool(tool_name or "", arguments)
 
         # Một lượt không-final luôn sinh đúng một Observation và đưa lại vào prompt.
-        print(f"👁️ Observation: {observation}")
+        log(f"👁️ Observation: {observation}")
         trace.append(
             {
                 "step": step,
@@ -232,8 +238,8 @@ def _run_react_case(case: dict[str, Any], provider: Any) -> dict[str, Any]:
         )
         history += f"\n{response}\nObservation: {observation}"
 
-    print(f"🛡️ Guardrail MAX_ITERATIONS={MAX_ITERATIONS} đã dừng vòng lặp.")
-    print(f"🏁 Final Answer: {SAFE_FALLBACK_MESSAGE}")
+    log(f"🛡️ Guardrail MAX_ITERATIONS={MAX_ITERATIONS} đã dừng vòng lặp.")
+    log(f"🏁 Final Answer: {SAFE_FALLBACK_MESSAGE}")
     return {
         **case,
         "status": "guardrail",
@@ -247,6 +253,118 @@ def run_react_agent(user_query: Any, provider: Any) -> Any:
     cases = _normalise_cases(user_query)
     results = [_run_react_case(case, provider) for case in cases]
     return results if isinstance(user_query, list) else results[0]
+
+
+def _trace_text(trace: list[dict[str, Any]]) -> str:
+    """Biến trace có cấu trúc thành nội dung dễ kiểm tra trong giao diện."""
+    blocks: list[str] = []
+    for item in trace:
+        response = str(item.get("response", "")).strip()
+        blocks.append(f"Bước {item.get('step')}\n{response}")
+        if "observation" in item:
+            blocks.append(f"Observation: {item['observation']}")
+    return "\n\n".join(blocks)
+
+
+def render_chatbox() -> None:
+    """Render chatbox Streamlit nhưng tái sử dụng nguyên vẹn ReAct Agent V2."""
+    try:
+        import streamlit as st
+    except ImportError as exc:  # pragma: no cover - chỉ xảy ra khi thiếu dependency UI
+        raise RuntimeError(
+            "Thiếu Streamlit. Hãy chạy: pip install -r requirements.txt"
+        ) from exc
+
+    st.set_page_config(
+        page_title="Agent tư vấn khóa học",
+        page_icon="🎓",
+        layout="centered",
+    )
+    st.title("🎓 Agent tư vấn khóa học")
+    st.caption(
+        "Trợ lý ReAct tra cứu catalog, tiến độ, tiên quyết và xung đột lịch "
+        "trước khi đưa ra khuyến nghị."
+    )
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Xin chào! Mình có thể tìm môn học, kiểm tra điều kiện tiên quyết "
+                    "và xung đột lịch. Bạn muốn chuẩn bị lộ trình nào?"
+                ),
+                "trace": [],
+                "status": "welcome",
+            }
+        ]
+
+    provider = get_llm_provider()
+    provider_name = provider.__class__.__name__.replace("Provider", "")
+    model_name = getattr(provider, "model_name", "offline")
+
+    with st.sidebar:
+        st.header("Trạng thái Agent")
+        st.write(f"**Provider:** {provider_name}")
+        st.write(f"**Model:** {model_name}")
+        st.write(f"**Giới hạn:** {MAX_ITERATIONS} bước")
+        st.info(
+            "Dữ liệu trong bài là catalog mẫu và các tool chỉ đọc. "
+            "Agent không thực hiện đăng ký môn."
+        )
+        if st.button("🗑️ Xóa cuộc trò chuyện", use_container_width=True):
+            st.session_state.messages = st.session_state.messages[:1]
+            st.rerun()
+
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+            trace = message.get("trace", [])
+            if trace:
+                with st.expander("Xem nhật ký Action → Observation"):
+                    st.code(_trace_text(trace), language="text")
+                status = message.get("status", "completed")
+                if status == "guardrail":
+                    st.warning("Agent đã dừng bởi phanh an toàn.")
+                elif status == "provider_error":
+                    st.error("Không thể kết nối LLM provider.")
+
+    question = st.chat_input("Ví dụ: SV001 có đủ điều kiện học AI301 không?")
+    if not question:
+        return
+
+    st.session_state.messages.append({"role": "user", "content": question})
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Agent đang suy luận và kiểm tra dữ liệu..."):
+            case = _normalise_cases(question)[0]
+            result = _run_react_case(case, provider, verbose=False)
+        st.markdown(result["answer"])
+        trace = result.get("trace", [])
+        if trace:
+            with st.expander("Xem nhật ký Action → Observation"):
+                st.code(_trace_text(trace), language="text")
+
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": result["answer"],
+            "trace": trace,
+            "status": result["status"],
+        }
+    )
+
+
+def _is_streamlit_runtime() -> bool:
+    """Nhận diện `streamlit run` mà không bắt buộc CLI phải import Streamlit."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        return get_script_run_ctx(suppress_warning=True) is not None
+    except ImportError:
+        return False
 
 
 def _select_cases(cases: list[dict[str, Any]], case_id: int | None) -> Any:
@@ -279,4 +397,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if _is_streamlit_runtime():
+        render_chatbox()
+    else:
+        raise SystemExit(main())
