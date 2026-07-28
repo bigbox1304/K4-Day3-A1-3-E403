@@ -1,0 +1,29 @@
+%% Hybrid Flowchart - Hiển thị phân luồng Chatbot vs ReAct Agent
+%% File: docs/hybrid_flowchart.mermaid
+
+flowchart LR
+  A[Người dùng gửi câu hỏi] --> B{Câu hỏi đơn giản hay phức tạp?}
+
+  %% Chatbot path (đường dành cho câu hỏi đơn giản)
+  subgraph Chatbot[Chatbot path]
+    direction TB
+    C1[Phân tích câu hỏi (NLU)]
+    C2[Tìm câu trả lời trong kiến thức hoặc mẫu]
+    C3[Trả lời cho người dùng]
+    C1 --> C2 --> C3
+  end
+
+  %% ReAct Agent path (đường dành cho câu hỏi phức tạp)
+  subgraph ReAct[ReAct Agent path]
+    direction TB
+    R1[Phân tích sâu & lập kế hoạch hành động]
+    R2[Tìm kiếm nguồn, gọi công cụ, hoặc thực hiện bước]
+    R3[Tổng hợp kết quả và tạo câu trả lời chi tiết]
+    R1 --> R2 --> R3
+  end
+
+  B -->|Đơn giản| C1
+  B -->|Phức tạp| R1
+
+  C3 --> D[Kết thúc]
+  R3 --> D
