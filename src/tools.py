@@ -7,7 +7,8 @@ Các tool chỉ cung cấp dữ liệu/kiểm tra deterministic. Việc tổng h
 
 import json
 import unicodedata
-from typing import Any
+from functools import wraps
+from typing import Any, Callable
 
 
 COURSE_CATALOG: dict[str, dict[str, Any]] = {
@@ -115,6 +116,29 @@ def _normalize_course_codes(course_codes: list[str]) -> list[str]:
     return list(dict.fromkeys(str(code).strip().upper() for code in course_codes if str(code).strip()))
 
 
+def _safe_tool(func: Callable[..., str]) -> Callable[..., str]:
+    """Biến mọi exception ngoài dự kiến thành Observation JSON an toàn.
+
+    Validation nghiệp vụ vẫn nằm trong từng tool để trả lỗi cụ thể. Lớp bảo vệ
+    cuối này ngăn lỗi dữ liệu/code làm dừng ReAct loop và không làm lộ chi tiết
+    exception nội bộ cho người dùng.
+    """
+
+    @wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> str:
+        try:
+            return func(*args, **kwargs)
+        except Exception:
+            return _json_result(
+                ok=False,
+                error=f"Tool '{func.__name__}' không thể xử lý yêu cầu an toàn",
+                recoverable=False,
+            )
+
+    return wrapper
+
+
+@_safe_tool
 def search_courses(keyword: str, department: str = "", level: str = "") -> str:
     """Tìm khóa học theo từ khóa và bộ lọc tùy chọn.
 
@@ -171,6 +195,7 @@ def search_courses(keyword: str, department: str = "", level: str = "") -> str:
     return _json_result(ok=True, count=len(matches), courses=matches)
 
 
+@_safe_tool
 def get_course_details(course_code: str) -> str:
     """Lấy dữ liệu đầy đủ của một khóa học từ mã khóa học.
 
@@ -198,6 +223,7 @@ def get_course_details(course_code: str) -> str:
     return _json_result(ok=True, course={"code": code, **course})
 
 
+@_safe_tool
 def get_student_progress(student_id: str) -> str:
     """Tra cứu tiến độ học tập tối thiểu cần cho việc tư vấn cá nhân hóa.
 
@@ -221,6 +247,7 @@ def get_student_progress(student_id: str) -> str:
     return _json_result(ok=True, student_id=student_key, progress=record)
 
 
+@_safe_tool
 def check_prerequisites(course_code: str, completed_courses: list[str]) -> str:
     """Kiểm tra sinh viên đã đáp ứng môn tiên quyết hay chưa.
 
@@ -257,6 +284,7 @@ def check_prerequisites(course_code: str, completed_courses: list[str]) -> str:
     )
 
 
+@_safe_tool
 def check_schedule_conflicts(course_codes: list[str]) -> str:
     """Phát hiện lịch học chồng lấn giữa nhiều khóa học.
 
