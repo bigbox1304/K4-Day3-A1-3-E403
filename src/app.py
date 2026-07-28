@@ -1,239 +1,275 @@
-"""
-🚀 CORE AGENT APP (Dành cho Role 4: Core Agent Developer)
-File chính ghép nối tất cả các thành phần: Tools + Prompts + Test Cases + Multi-Provider.
-"""
+"""Core app của Role 4: ghép provider, prompt, tool và ReAct loop."""
 
+from __future__ import annotations
+
+import argparse
 import json
 import os
+import re
 import sys
+from typing import Any
+
 from dotenv import load_dotenv
 
-# Đảm bảo import các module cùng thư mục src/ hoạt động mượt mà
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(SRC_DIR)
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
 
-# Đảm bảo in ra Tiếng Việt và Emojis không bị lỗi trên Windows Console
-if sys.stdout.encoding != 'utf-8':
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
     try:
-        sys.stdout.reconfigure(encoding='utf-8')
-    except Exception:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
         pass
 
-# Import các thành phần từ file của Role 2, Role 3 & Multi-Provider Adapter
-from tools import (
-    AVAILABLE_TOOLS,
-    search_courses,
-    get_course_details,
-    get_student_progress,
-    check_prerequisites,
-    check_schedule_conflicts,
+from prompts import (  # noqa: E402
+    CHATBOT_BASELINE_PROMPT,
+    MAX_ITERATIONS,
+    REACT_SYSTEM_PROMPT,
+    SAFE_FALLBACK_MESSAGE,
 )
-from prompts import CHATBOT_BASELINE_PROMPT, REACT_SYSTEM_PROMPT, MAX_ITERATIONS
-from providers import get_llm_provider
+from providers import get_llm_provider  # noqa: E402
+from tools import AVAILABLE_TOOLS  # noqa: E402
 
-load_dotenv()
+load_dotenv(os.path.join(PROJECT_DIR, ".env"))
 
-def load_test_cases():
-    """Đọc bộ test cases từ config/test_cases.json của Role 1"""
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    config_path = os.path.join(base_dir, "config", "test_cases.json")
-    
-    # Fallback kiểm tra nếu file ở thư mục hiện tại
-    if not os.path.exists(config_path):
-        config_path = "test_cases.json"
-        
-    with open(config_path, "r", encoding="utf-8-sig") as f:
-        return json.load(f)
+FINAL_PATTERN = re.compile(r"Final Answer:\s*(.+)", re.IGNORECASE | re.DOTALL)
+ACTION_PATTERN = re.compile(
+    r"Action:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(\[[\s\S]*\]|\{[\s\S]*\}|\([\s\S]*\))?\s*$",
+    re.IGNORECASE,
+)
+PROVIDER_ERROR_PATTERN = re.compile(
+    r"^\[(?:Gemini|OpenAI|Anthropic|OpenRouter)(?: API)? (?:Error|Exception)(?: [^]]+)?\]:",
+    re.IGNORECASE,
+)
 
 
-def run_baseline_chatbot(target, provider):
-    """
-    Dựng Chatbot gốc (Baseline) không có công cụ.
-    - Nối với `prompts.py` qua `CHATBOT_BASELINE_PROMPT`
-    - Nối với `tools.py` (Khai báo trạng thái 0 Tool Calls, hiển thị danh sách công cụ có sẵn từ tools.py nhưng không kích hoạt)
-    - Chạy mượt mà với bộ `config/test_cases.json` (dạng list, dict hoặc query string)
-    """
-    available_tools_list = list(AVAILABLE_TOOLS.keys())
-    print("\n==================================================")
-    print("💬 [CHATBOT BASELINE] KHỞI CHẠY CHẾ ĐỘ BASELINE THUẦN LLM")
-    print(f"⚙️ System Prompt (từ prompts.py):\n{CHATBOT_BASELINE_PROMPT.strip()}")
-    print(f"🛠️ Tool Status (từ tools.py): 0 Tool Calls (Có {len(available_tools_list)} tools sẵn có: {', '.join(available_tools_list)} - Không được phép gọi ở Baseline)")
-    print("==================================================\n")
-
-    # Nếu truyền vào danh sách toàn bộ test cases từ config/test_cases.json
-    if isinstance(target, list):
-        print(f"🚀 [CONFIG/TEST_CASES.JSON] Đang thực thi toàn bộ {len(target)} Test Cases:\n")
-        for idx, item in enumerate(target, 1):
-            if isinstance(item, dict):
-                qid = item.get("id", idx)
-                category = item.get("category", "N/A")
-                question = item.get("question", "")
-                expected = item.get("expected_behavior", "")
-            else:
-                qid = idx
-                category = "General"
-                question = str(item)
-                expected = ""
-
-            print(f"--------------------------------------------------")
-            print(f"📌 [Test Case #{qid}] - Phân loại: {category}")
-            print(f"❓ Câu hỏi: {question}")
-            if expected:
-                print(f"🎯 Hành vi kỳ vọng: {expected}")
-            
-            response = provider.generate(question, system_prompt=CHATBOT_BASELINE_PROMPT)
-            print(f"🤖 Chatbot Baseline trả lời:\n{response}\n")
-
-    # Nếu truyền vào 1 dict của 1 test case cụ thể
-    elif isinstance(target, dict):
-        qid = target.get("id", 1)
-        category = target.get("category", "N/A")
-        question = target.get("question", "")
-        expected = target.get("expected_behavior", "")
-
-        print(f"📌 [Test Case #{qid}] - Phân loại: {category}")
-        print(f"❓ Câu hỏi: {question}")
-        if expected:
-            print(f"🎯 Hành vi kỳ vọng: {expected}")
-        
-        response = provider.generate(question, system_prompt=CHATBOT_BASELINE_PROMPT)
-        print(f"🤖 Chatbot Baseline trả lời:\n{response}\n")
-
-    # Nếu truyền vào chuỗi câu hỏi (str)
-    else:
-        question = str(target)
-        print(f"❓ Câu hỏi: {question}")
-        response = provider.generate(question, system_prompt=CHATBOT_BASELINE_PROMPT)
-        print(f"🤖 Chatbot Baseline trả lời:\n{response}\n")
+def load_test_cases() -> list[dict[str, Any]]:
+    """Đọc và kiểm tra tối thiểu bộ test case của Role 1."""
+    config_path = os.path.join(PROJECT_DIR, "config", "test_cases.json")
+    with open(config_path, "r", encoding="utf-8-sig") as file:
+        test_cases = json.load(file)
+    if not isinstance(test_cases, list):
+        raise ValueError("config/test_cases.json phải chứa một JSON array")
+    return test_cases
 
 
-def run_react_agent(user_query, provider):
-    """
-    Dựng vòng lặp ReAct Agent (Thought -> Action -> Observation) có Guardrails.
-    Nối với `prompts.py` (REACT_SYSTEM_PROMPT, MAX_ITERATIONS, SAFE_FALLBACK_MESSAGE)
-    Nối với `tools.py` (AVAILABLE_TOOLS)
-    Chạy mượt mà với bộ `config/test_cases.json` (dạng list, dict hoặc query string)
-    """
-    import re
-    from prompts import SAFE_FALLBACK_MESSAGE
+def _normalise_cases(target: Any) -> list[dict[str, Any]]:
+    """Chuẩn hóa str/dict/list về cùng một cấu trúc để hai chế độ dùng chung."""
+    items = target if isinstance(target, list) else [target]
+    cases: list[dict[str, Any]] = []
+    for index, item in enumerate(items, 1):
+        if isinstance(item, dict):
+            cases.append(
+                {
+                    "id": item.get("id", index),
+                    "category": item.get("category", "General"),
+                    "question": str(item.get("question", "")).strip(),
+                    "expected_behavior": item.get("expected_behavior", ""),
+                }
+            )
+        else:
+            cases.append(
+                {
+                    "id": index,
+                    "category": "General",
+                    "question": str(item).strip(),
+                    "expected_behavior": "",
+                }
+            )
+    return cases
 
-    def _execute_single(target_query, category="General", qid="1", expected=""):
-        print(f"\n==================================================")
-        print(f"🤖 [REACT AGENT] - Test Case #{qid} (Phân loại: {category})")
-        print(f"❓ Câu hỏi: {target_query}")
-        if expected:
-            print(f"🎯 Hành vi kỳ vọng: {expected}")
-        print("==================================================")
 
-        history = f"Question: {target_query}"
-        step = 0
-        final_answered = False
+def _provider_error(response: Any) -> str | None:
+    """Nhận diện lỗi adapter để không đưa lỗi hạ tầng vào ReAct history."""
+    if not isinstance(response, str) or not response.strip():
+        return "Provider không trả về nội dung."
+    text = response.strip()
+    return text if PROVIDER_ERROR_PATTERN.match(text) else None
 
-        while step < MAX_ITERATIONS:
-            step += 1
-            print(f"\n--- 🔄 Vòng lặp ReAct (Step {step}/{MAX_ITERATIONS}) ---")
-            
-            response = provider.generate(history, system_prompt=REACT_SYSTEM_PROMPT)
-            print(f"🤖 Agent Response:\n{response}")
 
-            if "Final Answer:" in response:
-                final_answered = True
-                break
+def _parse_action(response: str) -> tuple[str | None, Any, str | None]:
+    """Parse một Action; lỗi cú pháp được trả thành dữ liệu recovery, không raise."""
+    match = ACTION_PATTERN.search(response.strip())
+    if not match:
+        return None, None, "Phản hồi phải chứa 'Action:' hoặc 'Final Answer:'."
 
-            action_match = re.search(r"Action:\s*([a-zA-Z0-9_]+)\s*([\[\(\{].*?[\}\)\]])", response, re.DOTALL)
-            if not action_match:
-                action_match = re.search(r"Action:\s*([a-zA-Z0-9_]+)", response)
-                tool_name = action_match.group(1).strip() if action_match else None
-                raw_args = ""
-            else:
-                tool_name = action_match.group(1).strip()
-                raw_args = action_match.group(2).strip()
+    tool_name = match.group(1)
+    raw_args = (match.group(2) or "").strip()
+    if not raw_args:
+        return tool_name, None, "Action thiếu đối số JSON."
 
-            if tool_name:
-                if tool_name in AVAILABLE_TOOLS:
-                    tool_func = AVAILABLE_TOOLS[tool_name]
-                    parsed = None
-                    if raw_args:
-                        try:
-                            parsed = json.loads(raw_args)
-                        except Exception:
-                            inner = raw_args.strip("[](){}")
-                            try:
-                                parsed = json.loads(inner)
-                            except Exception:
-                                parsed = inner.strip("'\"")
+    candidate = raw_args
+    if candidate.startswith("(") and candidate.endswith(")"):
+        candidate = candidate[1:-1].strip()
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        return tool_name, None, f"Đối số Action không phải JSON hợp lệ: {exc.msg}."
 
-                    if isinstance(parsed, list) and len(parsed) == 1 and isinstance(parsed[0], (dict, str)):
-                        parsed = parsed[0]
+    # Prompt chuẩn dùng tool[{...}], nên bỏ đúng một lớp list bao ngoài.
+    if isinstance(parsed, list) and len(parsed) == 1 and isinstance(parsed[0], dict):
+        parsed = parsed[0]
+    return tool_name, parsed, None
 
-                    try:
-                        if isinstance(parsed, dict):
-                            obs = tool_func(**parsed)
-                        elif isinstance(parsed, list):
-                            obs = tool_func(parsed)
-                        elif isinstance(parsed, str) and parsed:
-                            obs = tool_func(parsed)
-                        elif parsed is None:
-                            obs = tool_func()
-                        else:
-                            obs = tool_func(parsed)
-                    except Exception as e:
-                        obs = json.dumps({"ok": False, "error": f"Lỗi tham số khi gọi tool '{tool_name}': {str(e)}"}, ensure_ascii=False)
-                else:
-                    obs = json.dumps({
+
+def _execute_tool(tool_name: str, arguments: Any) -> str:
+    """Thực thi đúng một tool và luôn trả đúng một Observation dạng chuỗi."""
+    tool = AVAILABLE_TOOLS.get(tool_name)
+    if tool is None:
+        return json.dumps(
+            {
+                "ok": False,
+                "error": f"Tool '{tool_name}' không tồn tại.",
+                "available_tools": sorted(AVAILABLE_TOOLS),
+                "recoverable": True,
+            },
+            ensure_ascii=False,
+        )
+    try:
+        if isinstance(arguments, dict):
+            return tool(**arguments)
+        if isinstance(arguments, list):
+            return tool(arguments)
+        if arguments is None:
+            return tool()
+        return tool(arguments)
+    except Exception as exc:
+        return json.dumps(
+            {
+                "ok": False,
+                "error": f"Tham số không phù hợp với tool '{tool_name}': {exc}",
+                "recoverable": True,
+            },
+            ensure_ascii=False,
+        )
+
+
+def run_baseline_chatbot(target: Any, provider: Any) -> list[dict[str, Any]]:
+    """Chạy đúng một LLM call và không gọi tool cho mỗi test case."""
+    results: list[dict[str, Any]] = []
+    print("\n💬 [CHATBOT BASELINE] 1 LLM call/case, 0 tool calls")
+    for case in _normalise_cases(target):
+        print(f"\n📌 Test Case #{case['id']} — {case['category']}")
+        print(f"❓ {case['question']}")
+        response = provider.generate(
+            case["question"], system_prompt=CHATBOT_BASELINE_PROMPT
+        )
+        error = _provider_error(response)
+        answer = error or response.strip()
+        status = "provider_error" if error else "completed"
+        print(f"🤖 {answer}")
+        results.append({**case, "status": status, "answer": answer, "tool_calls": 0})
+    return results
+
+
+def _run_react_case(case: dict[str, Any], provider: Any) -> dict[str, Any]:
+    """Chạy state machine ReAct V2 cho một câu hỏi."""
+    print(f"\n🤖 [REACT AGENT] Test Case #{case['id']} — {case['category']}")
+    print(f"❓ {case['question']}")
+    history = f"Question: {case['question']}"
+    trace: list[dict[str, Any]] = []
+    seen_actions: set[str] = set()
+
+    for step in range(1, MAX_ITERATIONS + 1):
+        print(f"\n--- Step {step}/{MAX_ITERATIONS} ---")
+        response = provider.generate(history, system_prompt=REACT_SYSTEM_PROMPT)
+        error = _provider_error(response)
+        if error:
+            answer = f"Không thể kết nối dịch vụ AI. Chi tiết: {error}"
+            print(f"⚠️ {answer}")
+            return {**case, "status": "provider_error", "answer": answer, "trace": trace}
+
+        response = response.strip()
+        print(response)
+        final_match = FINAL_PATTERN.search(response)
+        if final_match:
+            answer = final_match.group(1).strip()
+            trace.append({"step": step, "response": response, "type": "final"})
+            print(f"🏁 Final Answer: {answer}")
+            return {**case, "status": "completed", "answer": answer, "trace": trace}
+
+        tool_name, arguments, parse_error = _parse_action(response)
+        if parse_error:
+            observation = json.dumps(
+                {"ok": False, "error": parse_error, "recoverable": True},
+                ensure_ascii=False,
+            )
+        else:
+            action_key = json.dumps(
+                [tool_name, arguments], ensure_ascii=False, sort_keys=True
+            )
+            if action_key in seen_actions:
+                observation = json.dumps(
+                    {
                         "ok": False,
-                        "error": f"Tool '{tool_name}' không tồn tại.",
-                        "available_tools": list(AVAILABLE_TOOLS.keys())
-                    }, ensure_ascii=False)
-
-                print(f"👁️ Observation: {obs}")
-                history += f"\n{response}\nObservation: {obs}\n"
-            else:
-                history += f"\n{response}\n"
-
-        if not final_answered:
-            print(f"\n🛡️ GUARDRAIL TRIGGERED: Đã đạt giới hạn tối đa {MAX_ITERATIONS} bước. Ngắt lặp an toàn!")
-            print(f"🏁 Final Answer: {SAFE_FALLBACK_MESSAGE}")
-
-    if isinstance(user_query, list):
-        print(f"🚀 [CONFIG/TEST_CASES.JSON] Đang thực thi ReAct Agent trên toàn bộ {len(user_query)} Test Cases:\n")
-        for idx, item in enumerate(user_query, 1):
-            if isinstance(item, dict):
-                _execute_single(
-                    target_query=item.get("question", ""),
-                    category=item.get("category", "N/A"),
-                    qid=item.get("id", idx),
-                    expected=item.get("expected_behavior", "")
+                        "error": "Action này đã được gọi với cùng tham số.",
+                        "recoverable": True,
+                    },
+                    ensure_ascii=False,
                 )
             else:
-                _execute_single(target_query=str(item), qid=idx)
-    elif isinstance(user_query, dict):
-        _execute_single(
-            target_query=user_query.get("question", ""),
-            category=user_query.get("category", "N/A"),
-            qid=user_query.get("id", 1),
-            expected=user_query.get("expected_behavior", "")
+                seen_actions.add(action_key)
+                observation = _execute_tool(tool_name or "", arguments)
+
+        # Một lượt không-final luôn sinh đúng một Observation và đưa lại vào prompt.
+        print(f"👁️ Observation: {observation}")
+        trace.append(
+            {
+                "step": step,
+                "response": response,
+                "tool": tool_name,
+                "arguments": arguments,
+                "observation": observation,
+            }
         )
-    else:
-        _execute_single(target_query=str(user_query))
+        history += f"\n{response}\nObservation: {observation}"
+
+    print(f"🛡️ Guardrail MAX_ITERATIONS={MAX_ITERATIONS} đã dừng vòng lặp.")
+    print(f"🏁 Final Answer: {SAFE_FALLBACK_MESSAGE}")
+    return {
+        **case,
+        "status": "guardrail",
+        "answer": SAFE_FALLBACK_MESSAGE,
+        "trace": trace,
+    }
+
+
+def run_react_agent(user_query: Any, provider: Any) -> Any:
+    """Chạy ReAct cho str/dict/list và trả kết quả để UI/module khác sử dụng."""
+    cases = _normalise_cases(user_query)
+    results = [_run_react_case(case, provider) for case in cases]
+    return results if isinstance(user_query, list) else results[0]
+
+
+def _select_cases(cases: list[dict[str, Any]], case_id: int | None) -> Any:
+    if case_id is None:
+        return cases
+    for case in cases:
+        if case.get("id") == case_id:
+            return case
+    raise ValueError(f"Không tìm thấy test case #{case_id}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Chatbot baseline và ReAct Agent")
+    parser.add_argument("--mode", choices=("baseline", "react", "both"), default="react")
+    parser.add_argument("--case", type=int, help="ID test case; bỏ trống để chạy cả bộ")
+    parser.add_argument("--query", help="Chạy trực tiếp một câu hỏi thay cho test case")
+    args = parser.parse_args()
+
+    provider = get_llm_provider()
+    model = getattr(provider, "model_name", "offline mock")
+    print("🏫 LAB 3 — CHATBOT VS REACT AGENT")
+    print(f"🔌 Provider: {provider.__class__.__name__} ({model})")
+
+    target = args.query if args.query is not None else _select_cases(load_test_cases(), args.case)
+    if args.mode in ("baseline", "both"):
+        run_baseline_chatbot(target, provider)
+    if args.mode in ("react", "both"):
+        run_react_agent(target, provider)
+    return 0
 
 
 if __name__ == "__main__":
-    print("==================================================")
-    print("🏫 ĐẠI HỌC VINUNI - BÀI LAB 3: CHATBOT VS REACT AGENT")
-    print("==================================================")
-    
-    # Khởi tạo Multi-Provider LLM Adapter (Đọc từ biến môi trường LLM_PROVIDER)
-    provider = get_llm_provider()
-    model_name = getattr(provider, "model_name", "Offline Mock Mode")
-    print(f"🔌 LLM Provider đang hoạt động: {provider.__class__.__name__} (Model: {model_name})")
-    
-    tests = load_test_cases()
-    print(f"✅ Đã tải thành công {len(tests)} Test Cases từ config/test_cases.json\n")
-    
-    print("--- DEMO 1: CHẠY BỘ TEST_CASES.JSON TRÊN CHATBOT BASELINE ---")
-    #run_baseline_chatbot(tests, provider)
-    
-    print("\n--- DEMO 2: CHẠY THỬ REACT AGENT CỦA TEST CASE #3 ---")
-    sample_query = tests[2]["question"]
-    run_react_agent(sample_query, provider)
-
+    raise SystemExit(main())
