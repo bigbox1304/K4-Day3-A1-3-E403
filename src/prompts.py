@@ -86,7 +86,9 @@ Final Answer: <câu trả lời tiếng Việt ngắn gọn; nêu rõ giới h�
 
 
 # Phanh vòng lặp được Role 4 đọc để dừng trước khi Agent lặp vô hạn.
-MAX_ITERATIONS = 3
+# Năm lượt đủ cho các test case hiện tại và vẫn giữ một giới hạn cứng để
+# câu bẫy không thể lặp vô hạn.
+MAX_ITERATIONS = 5
 TIMEOUT_SECONDS = 10
 SAFE_FALLBACK_MESSAGE = (
     "Tôi chưa thể hoàn tất tư vấn trong giới hạn an toàn. "
