@@ -106,32 +106,115 @@ def run_baseline_chatbot(target, provider):
         print(f"🤖 Chatbot Baseline trả lời:\n{response}\n")
 
 
-def run_react_agent(user_query: str, provider):
+def run_react_agent(user_query, provider):
     """
     Dựng vòng lặp ReAct Agent (Thought -> Action -> Observation) có Guardrails.
+    Nối với `prompts.py` (REACT_SYSTEM_PROMPT, MAX_ITERATIONS, SAFE_FALLBACK_MESSAGE)
+    Nối với `tools.py` (AVAILABLE_TOOLS)
+    Chạy mượt mà với bộ `config/test_cases.json` (dạng list, dict hoặc query string)
     """
-    print(f"\n🤖 [REACT AGENT] Câu hỏi: {user_query}")
-    step = 0
-    
-    while step < MAX_ITERATIONS:
-        step += 1
-        print(f"\n--- 🔄 Vòng lặp ReAct (Step {step}/{MAX_ITERATIONS}) ---")
-        
-        if step == 1:
-            print("🧠 Thought: Câu hỏi này cần tra cứu danh mục khóa học Python & AI.")
-            print("🛠️ Action: search_courses['Python']")
+    import re
+    from prompts import SAFE_FALLBACK_MESSAGE
+
+    def _execute_single(target_query, category="General", qid="1", expected=""):
+        print(f"\n==================================================")
+        print(f"🤖 [REACT AGENT] - Test Case #{qid} (Phân loại: {category})")
+        print(f"❓ Câu hỏi: {target_query}")
+        if expected:
+            print(f"🎯 Hành vi kỳ vọng: {expected}")
+        print("==================================================")
+
+        history = f"Question: {target_query}"
+        step = 0
+        final_answered = False
+
+        while step < MAX_ITERATIONS:
+            step += 1
+            print(f"\n--- 🔄 Vòng lặp ReAct (Step {step}/{MAX_ITERATIONS}) ---")
             
-            # Thực thi tool từ tools.py
-            obs = search_courses("Python")
-            print(f"👁️ Observation: {obs}")
-            
-        elif step == 2:
-            print("🧠 Thought: Tôi đã có kết quả khóa học từ database, giờ tôi có thể tư vấn lộ trình.")
-            print("🏁 Final Answer: Bạn nên bắt đầu với khóa CS101 (Nhập môn Lập trình Python) 3 tín chỉ!")
-            break
-            
-    if step >= MAX_ITERATIONS:
-        print(f"🛡️ GUARDRAIL TRIGGERED: Đã đạt giới hạn tối đa {MAX_ITERATIONS} bước. Ngắt lặp an toàn!")
+            response = provider.generate(history, system_prompt=REACT_SYSTEM_PROMPT)
+            print(f"🤖 Agent Response:\n{response}")
+
+            if "Final Answer:" in response:
+                final_answered = True
+                break
+
+            action_match = re.search(r"Action:\s*([a-zA-Z0-9_]+)\s*([\[\(\{].*?[\}\)\]])", response, re.DOTALL)
+            if not action_match:
+                action_match = re.search(r"Action:\s*([a-zA-Z0-9_]+)", response)
+                tool_name = action_match.group(1).strip() if action_match else None
+                raw_args = ""
+            else:
+                tool_name = action_match.group(1).strip()
+                raw_args = action_match.group(2).strip()
+
+            if tool_name:
+                if tool_name in AVAILABLE_TOOLS:
+                    tool_func = AVAILABLE_TOOLS[tool_name]
+                    parsed = None
+                    if raw_args:
+                        try:
+                            parsed = json.loads(raw_args)
+                        except Exception:
+                            inner = raw_args.strip("[](){}")
+                            try:
+                                parsed = json.loads(inner)
+                            except Exception:
+                                parsed = inner.strip("'\"")
+
+                    if isinstance(parsed, list) and len(parsed) == 1 and isinstance(parsed[0], (dict, str)):
+                        parsed = parsed[0]
+
+                    try:
+                        if isinstance(parsed, dict):
+                            obs = tool_func(**parsed)
+                        elif isinstance(parsed, list):
+                            obs = tool_func(parsed)
+                        elif isinstance(parsed, str) and parsed:
+                            obs = tool_func(parsed)
+                        elif parsed is None:
+                            obs = tool_func()
+                        else:
+                            obs = tool_func(parsed)
+                    except Exception as e:
+                        obs = json.dumps({"ok": False, "error": f"Lỗi tham số khi gọi tool '{tool_name}': {str(e)}"}, ensure_ascii=False)
+                else:
+                    obs = json.dumps({
+                        "ok": False,
+                        "error": f"Tool '{tool_name}' không tồn tại.",
+                        "available_tools": list(AVAILABLE_TOOLS.keys())
+                    }, ensure_ascii=False)
+
+                print(f"👁️ Observation: {obs}")
+                history += f"\n{response}\nObservation: {obs}\n"
+            else:
+                history += f"\n{response}\n"
+
+        if not final_answered:
+            print(f"\n🛡️ GUARDRAIL TRIGGERED: Đã đạt giới hạn tối đa {MAX_ITERATIONS} bước. Ngắt lặp an toàn!")
+            print(f"🏁 Final Answer: {SAFE_FALLBACK_MESSAGE}")
+
+    if isinstance(user_query, list):
+        print(f"🚀 [CONFIG/TEST_CASES.JSON] Đang thực thi ReAct Agent trên toàn bộ {len(user_query)} Test Cases:\n")
+        for idx, item in enumerate(user_query, 1):
+            if isinstance(item, dict):
+                _execute_single(
+                    target_query=item.get("question", ""),
+                    category=item.get("category", "N/A"),
+                    qid=item.get("id", idx),
+                    expected=item.get("expected_behavior", "")
+                )
+            else:
+                _execute_single(target_query=str(item), qid=idx)
+    elif isinstance(user_query, dict):
+        _execute_single(
+            target_query=user_query.get("question", ""),
+            category=user_query.get("category", "N/A"),
+            qid=user_query.get("id", 1),
+            expected=user_query.get("expected_behavior", "")
+        )
+    else:
+        _execute_single(target_query=str(user_query))
 
 
 if __name__ == "__main__":
@@ -148,7 +231,7 @@ if __name__ == "__main__":
     print(f"✅ Đã tải thành công {len(tests)} Test Cases từ config/test_cases.json\n")
     
     print("--- DEMO 1: CHẠY BỘ TEST_CASES.JSON TRÊN CHATBOT BASELINE ---")
-    run_baseline_chatbot(tests, provider)
+    #run_baseline_chatbot(tests, provider)
     
     print("\n--- DEMO 2: CHẠY THỬ REACT AGENT CỦA TEST CASE #3 ---")
     sample_query = tests[2]["question"]
