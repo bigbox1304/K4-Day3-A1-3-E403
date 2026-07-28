@@ -181,13 +181,20 @@ def _run_react_case(case: dict[str, Any], provider: Any) -> dict[str, Any]:
             return {**case, "status": "provider_error", "answer": answer, "trace": trace}
 
         response = response.strip()
-        print(response)
         final_match = FINAL_PATTERN.search(response)
         if final_match:
-            answer = final_match.group(1).strip()
+            raw_answer = final_match.group(1).strip()
+            answer = re.sub(
+                r"^(?:Final\s*Answer:\s*)+", "", raw_answer, flags=re.IGNORECASE
+            ).strip()
+            thought_part = response[:final_match.start()].strip()
+            if thought_part:
+                print(thought_part)
             trace.append({"step": step, "response": response, "type": "final"})
             print(f"🏁 Final Answer: {answer}")
             return {**case, "status": "completed", "answer": answer, "trace": trace}
+
+        print(response)
 
         tool_name, arguments, parse_error = _parse_action(response)
         if parse_error:
